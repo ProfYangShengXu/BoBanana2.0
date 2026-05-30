@@ -1,0 +1,12 @@
+name: plugin_ping
+version: 1.0.0
+description: Example echo plugin — responds pong (safe, read-only)
+permissions:
+  - read
+handler: echo
+message: "pong from plugin {name} v{version} (caller={caller})"
+parameters:
+  caller:
+    type: string
+    description: Who invoked the ping
+    default: agent

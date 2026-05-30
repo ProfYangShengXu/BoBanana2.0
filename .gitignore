@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Secrets & runtime data
+.env
+.bobanana/
+
+# Distribution builds
+dist/
+
+# Local run logs / scratch (not for repo)
+docs/delivery/output/
+critique_report.md
+config_files_summary.md
+diagnostic_files_summary.md
+_matches.txt
+matches_out.txt
+test_write.txt
+langgraph_latest_*
+pypi_langgraph.json
+github_search_raw.json
+_parse_github.py
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.cursor/

@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "exa": {
+      "command": "npx",
+      "args": ["-y", "exa-mcp-server"],
+      "transport": "stdio",
+      "env": { "EXA_API_KEY": "your-exa-key" }
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "transport": "stdio"
+    },
+    "example-remote": {
+      "url": "https://your-mcp-host/mcp",
+      "transport": "streamable_http"
+    }
+  }
+}
