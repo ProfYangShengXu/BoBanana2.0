@@ -30,7 +30,7 @@
 ### 方式二：克隆仓库（开发者）
 
 ```bash
-git clone https://github.com/YOUR_USER/BoBanana2.0.git
+git clone https://github.com/ProfYangShengXu/BoBanana2.0.git
 cd BoBanana2.0
 python install.py          # 或 python3 install.py
 # 配置 API
