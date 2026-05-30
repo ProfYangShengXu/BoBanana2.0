@@ -150,12 +150,22 @@ class CodingAgentGraph:
     # ----- nodes -----
     def _prepare_workspace_node(self, state: AgentState) -> dict:
         """Once per task: build live file index + tool catalog into scratch (no LLM)."""
+        current = str(self.settings.workspace.resolve())
+        cached_root = self.memory.working.get_scratch("workspace_root")
+        if cached_root and cached_root != current:
+            log.warning(
+                "prepare_workspace: workspace_root mismatch (%s != %s); clearing scratch",
+                cached_root, current,
+            )
+            self.memory.working.clear()
         if self.memory.working.get_scratch("workspace_index"):
+            self.memory.working.set_scratch("workspace_root", current)
             log.debug("prepare_workspace: reusing cached scratch index")
             return {}
         from .workspace_index import build_workspace_index
 
         index = build_workspace_index(self.settings.workspace)
+        self.memory.working.set_scratch("workspace_root", current)
         self.memory.working.set_scratch("workspace_index", index)
         try:
             catalog = self.toolbox.describe_registry()

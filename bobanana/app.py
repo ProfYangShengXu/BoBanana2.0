@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable, Optional
 
-from .config import Settings
+from .config import Settings, default_skill_dirs, resolve_data_dir
 from .graph import CodingAgentGraph
 from .llm import build_chat_model, build_role_models
 from .logging_setup import get_logger, setup_logging
@@ -25,7 +25,8 @@ class Application:
         setup_logging(self.settings.log_level)
         self.log = get_logger("app")
 
-        self.memory = MemoryManager(self.settings.data_dir)
+        self.memory = MemoryManager(
+            self.settings.data_dir, workspace=self.settings.workspace)
         self.skills = SkillRegistry(self.settings.skill_dirs, self.settings.external_dir)
         self.mcp = McpManager(self.settings.mcp_config)
         self._mcp_tools = self.mcp.load()[0]
@@ -51,6 +52,16 @@ class Application:
         return self._role_models
 
     def _ensure_graph(self, on_event: Callable[[dict], None]) -> CodingAgentGraph:
+        if self._graph is not None:
+            ws = self.settings.workspace.resolve()
+            stale = (
+                self._graph.memory is not self.memory
+                or self._graph.settings.workspace.resolve() != ws
+            )
+            if stale:
+                self.log.warning(
+                    "graph stale (memory or workspace changed); rebuilding toolbox/graph")
+                self._graph = None
         if self._graph is None:
             models = self._ensure_role_models()
             self._graph = CodingAgentGraph(
@@ -191,20 +202,23 @@ class Application:
 
         self.log.info("switching workspace -> %s", new_workspace)
         self.settings.workspace = new_workspace
-        self.settings.data_dir = (new_workspace / ".bobanana").resolve()
+        self.settings.data_dir = resolve_data_dir(new_workspace)
         self.settings.mcp_config = new_workspace / "mcp.json"
-        ws_skills = new_workspace / "skills"
-        if ws_skills not in self.settings.skill_dirs:
-            self.settings.skill_dirs = list(self.settings.skill_dirs) + [ws_skills]
+        self.settings.skill_dirs = default_skill_dirs(new_workspace)
         self.settings.ensure_dirs()
 
         # Re-point memory at the new workspace's stores (close old handles first).
         self.memory.close()
-        self.memory = MemoryManager(self.settings.data_dir)
-        # Re-discover skills (workspace/skills may differ) and reset graph/toolbox.
+        self.memory = MemoryManager(
+            self.settings.data_dir, workspace=new_workspace)
+        # Re-discover skills/MCP for this workspace and reset graph/toolbox.
         self.skills = SkillRegistry(self.settings.skill_dirs, self.settings.external_dir)
+        self.mcp = McpManager(self.settings.mcp_config)
+        self._mcp_tools = self.mcp.load()[0]
         self._graph = None
-        return f"OK: workspace set to {new_workspace}"
+        self._applied_budget = None
+        return (f"OK: workspace set to {new_workspace}\n"
+                f"memory store: {self.settings.data_dir} (session working memory cleared)")
 
     def close(self) -> None:
         self.memory.close()

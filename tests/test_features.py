@@ -8,6 +8,7 @@
 import tempfile
 from pathlib import Path
 
+from bobanana.app import Application
 from bobanana.config import Settings
 from bobanana.graph import CodingAgentGraph
 from bobanana.memory import MemoryManager
@@ -98,6 +99,75 @@ def test_metaprompter_fallback_on_garbage():
     out = mp.triage("做个后端")
     assert out.needs_clarification is False
     assert out.refined_request == "做个后端"
+
+
+# ----- workspace switch / memory isolation -----
+def test_set_workspace_isolates_structured_and_working_memory(tmp_path):
+    ws_a = tmp_path / "proj_a"
+    ws_b = tmp_path / "proj_b"
+    ws_a.mkdir()
+    ws_b.mkdir()
+    settings = Settings(workspace=ws_a, data_dir=ws_a / ".bobanana", api_key="")
+    app = Application(settings)
+    app.memory.record_fact("marker", "only-in-A", category="general")
+    app.memory.remember_turn("user", "conversation secret from project A")
+
+    app.set_workspace(ws_b)
+    assert app.settings.data_dir == (ws_b / ".bobanana").resolve()
+    assert app.memory.structured.get_fact("marker") is None
+    assert "secret" not in app.memory.recall_conversation("secret")
+
+    app.memory.record_fact("marker", "only-in-B", category="general")
+    app.set_workspace(ws_a)
+    assert app.memory.structured.get_fact("marker") == "only-in-A"
+    # Working memory is per-session; switching workspaces clears it (no cross-talk).
+    assert "secret" not in app.memory.recall_conversation("secret")
+
+
+def test_ensure_graph_rebuilds_when_memory_replaced(tmp_path, monkeypatch):
+    from bobanana.llm import ROLE_TEMPERATURES
+
+    ws_a = tmp_path / "a"
+    ws_b = tmp_path / "b"
+    ws_a.mkdir()
+    ws_b.mkdir()
+    settings = Settings(workspace=ws_a, data_dir=ws_a / ".bobanana", api_key="")
+    app = Application(settings)
+    monkeypatch.setattr(
+        "bobanana.app.build_role_models",
+        lambda _s: {role: _FakeChat() for role in ROLE_TEMPERATURES},
+    )
+    graph_a = app._ensure_graph(lambda e: None)
+    mem_a = app.memory
+
+    app.set_workspace(ws_b)
+    graph_b = app._ensure_graph(lambda e: None)
+    assert graph_b is not graph_a
+    assert graph_b.memory is app.memory
+    assert graph_b.memory is not mem_a
+    assert graph_b.settings.workspace.resolve() == ws_b.resolve()
+
+
+def test_prepare_workspace_clears_stale_scratch_on_workspace_mismatch(tmp_path):
+    ws_a = tmp_path / "a"
+    ws_b = tmp_path / "b"
+    ws_a.mkdir()
+    ws_b.mkdir()
+    (ws_b / "only_b.txt").write_text("b", encoding="utf-8")
+    settings = Settings(workspace=ws_a, data_dir=ws_a / ".bobanana", api_key="")
+    mem = MemoryManager(settings.data_dir, workspace=ws_a)
+    mem.working.set_scratch("workspace_root", str(ws_a.resolve()))
+    mem.working.set_scratch("workspace_index", "STALE-INDEX-FROM-A")
+
+    settings.workspace = ws_b
+    graph = CodingAgentGraph(settings, _FakeChat(), mem, models={})
+    try:
+        graph._prepare_workspace_node({})
+        index = mem.working.get_scratch("workspace_index")
+        assert "STALE-INDEX-FROM-A" not in (index or "")
+        assert "only_b.txt" in (index or "")
+    finally:
+        mem.close()
 
 
 # ----- workspace validation -----

@@ -39,8 +39,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.workspace:
         from pathlib import Path
 
+        from .config import resolve_data_dir
+
         settings.workspace = Path(args.workspace).resolve()
-        settings.data_dir = settings.workspace / ".bobanana"
+        settings.data_dir = resolve_data_dir(settings.workspace)
     if args.debug:
         settings.log_level = "DEBUG"
 

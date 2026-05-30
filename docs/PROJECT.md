@@ -68,7 +68,7 @@ BoBanana 2.0 是一个**纯终端编程 Agent**，用 Python + LangChain + LangG
 ### 可选工作区 / 元提示 / 交付门（本次新增）
 
 - **可选代码工作区**：`/open-folder [path]` 调系统目录选择器（`workspace.py`，无 GUI 时降级为提示手输路径）；
-  `app.set_workspace` 关闭旧记忆库句柄→在新目录重建记忆/skills→重置 graph/toolbox，并重指向 `mcp.json`。`/workspace` 查看当前工作区。
+  `app.set_workspace` 关闭旧记忆库句柄→在新工作区的 `<workspace>/.bobanana/` 重建结构化记忆与会话工作记忆→重置 skill_dirs/MCP/graph/toolbox（若 graph 仍绑定旧 memory/workspace 则 `_ensure_graph` 强制重建）。`prepare_workspace` 在 `workspace_root` 与当前目录不一致时会清空 scratch 索引缓存。`/workspace` 查看当前工作区与 data dir。
 - **主动元提示**：提交任务前 `triage.should_metaprompt` 启发式判定「大/不清」（关键词、字数、并列/列表、模糊词、代码任务过短）；
   命中则 `MetaPrompter`（结构化 `TaskTriage`）择一：列澄清问题就地收集一轮回答，或给出细化需求供执行；LLM 异常回退原需求。
 - **交付门 skill 默认调用**：`app` 启动加载本机 `code-delivery-gate` 的 `SKILL.md`，`graph` 在「代码任务」

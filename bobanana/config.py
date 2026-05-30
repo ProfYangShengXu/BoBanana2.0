@@ -44,6 +44,27 @@ def _normalize_base_url(url: str | None) -> str | None:
     return url
 
 
+def resolve_data_dir(workspace: Path, data_dir_raw: str | None = None) -> Path:
+    """Memory store path for *workspace* (honours BOBANANA_DATA_DIR when relative)."""
+    raw = data_dir_raw if data_dir_raw is not None else _env("BOBANANA_DATA_DIR", ".bobanana")
+    data_dir = Path(raw)
+    if not data_dir.is_absolute():
+        data_dir = workspace / data_dir
+    return data_dir.resolve()
+
+
+def default_skill_dirs(workspace: Path) -> List[Path]:
+    """Skill search paths for *workspace* (global dirs + workspace/skills)."""
+    skill_dirs_env = _env("BOBANANA_SKILL_DIRS")
+    if skill_dirs_env:
+        return [Path(p.strip()).expanduser() for p in skill_dirs_env.split(os.pathsep) if p.strip()]
+    return [
+        Path.home() / ".agents" / "skills",
+        Path.home() / ".cursor" / "skills",
+        workspace / "skills",
+    ]
+
+
 def _env_bool(key: str, default: bool) -> bool:
     raw = _env(key)
     if raw is None:
@@ -113,21 +134,8 @@ class Settings(BaseModel):
     @classmethod
     def load(cls) -> "Settings":
         workspace = Path(_env("BOBANANA_WORKSPACE", str(Path.cwd()))).resolve()
-        data_dir_raw = _env("BOBANANA_DATA_DIR", ".bobanana")
-        data_dir = Path(data_dir_raw)
-        if not data_dir.is_absolute():
-            data_dir = workspace / data_dir
-
-        default_skill_dirs = [
-            Path.home() / ".agents" / "skills",
-            Path.home() / ".cursor" / "skills",
-            workspace / "skills",
-        ]
-        skill_dirs_env = _env("BOBANANA_SKILL_DIRS")
-        if skill_dirs_env:
-            skill_dirs = [Path(p.strip()).expanduser() for p in skill_dirs_env.split(os.pathsep) if p.strip()]
-        else:
-            skill_dirs = default_skill_dirs
+        data_dir = resolve_data_dir(workspace)
+        skill_dirs = default_skill_dirs(workspace)
 
         mcp_config_raw = _env("BOBANANA_MCP_CONFIG")
         mcp_config = Path(mcp_config_raw).expanduser() if mcp_config_raw else workspace / "mcp.json"
