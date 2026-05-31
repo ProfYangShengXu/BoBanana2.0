@@ -46,14 +46,19 @@ class CodingAgentGraph:
                  skill_registry: Optional[SkillRegistry] = None,
                  mcp_tools: Optional[list] = None,
                  delivery_gate_text: str = "",
-                 models: Optional[dict] = None) -> None:
+                 models: Optional[dict] = None,
+                 checkpointer=None,
+                 token_handler=None,
+                 micro_planner_llm=None,
+                 turn_journal=None) -> None:
         self.settings = settings
         self.memory = memory
         self.on_event = on_event or (lambda e: None)
         self._gate_directive = self._build_gate_directive(delivery_gate_text)
+        self._checkpointer = checkpointer
+        self._token_handler = token_handler
+        self._turn_journal = turn_journal
 
-        # Per-role temperature tiers. ``models`` maps role -> chat model; when not
-        # supplied (e.g. offline tests) the single ``llm`` is used for every role.
         m = models or {}
         planner_llm = m.get("planner", llm)
         reviewer_llm = m.get("reviewer", llm)
@@ -61,7 +66,6 @@ class CodingAgentGraph:
         executor_llm = m.get("executor", llm)
         self._finalize_llm = m.get("finalize", llm)
 
-        # Checkpoint/interrupt runner state (set per run()).
         self._active_config: Optional[dict] = None
         self._interrupted: bool = False
 
@@ -75,6 +79,7 @@ class CodingAgentGraph:
             plugin_dir=settings.plugin_dir,
             enable_plugins=settings.enable_tool_plugins,
             permission_policy=settings.permission_policy(),
+            turn_journal=turn_journal,
         )
         log.info("toolbox ready with %d tool(s): %s", len(self.toolbox.tools),
                  ", ".join(getattr(t, "name", "?") for t in self.toolbox.tools))
@@ -84,9 +89,11 @@ class CodingAgentGraph:
         self.executor = ExecutorAgent(
             executor_llm,
             self.toolbox.tools,
-            max_tool_iters=settings.max_tool_iters,
             on_tool=self._emit_tool,
+            step_timeout=settings.step_timeout,
         )
+        from .agents.micro_planner import MicroPlanner
+        self._micro_planner = MicroPlanner(micro_planner_llm or planner_llm)
         self._graph = self._build()
 
     # ----- event helpers -----
@@ -295,15 +302,13 @@ class CodingAgentGraph:
         )
         ev_start = self._emit("step_start", index=idx + 1, total=len(plan.steps),
                               description=step.description)
-        # Difficulty is a durable per-task floor on the per-step tool budget, so even
-        # the FIRST attempt of a hard task gets more room; tool_iter_bonus is the
-        # transient within-step retry bump (reset on advance). Take the larger.
-        difficulty = state.get("difficulty", 0.5)
-        difficulty_floor = round(difficulty * self.settings.max_tool_iters * 0.5)
-        extra = max(state.get("tool_iter_bonus", 0), difficulty_floor)
-        output = self.executor.execute(step.description, context, review, prior,
-                                        self._directives(state), key_directives=plan.key_directives,
-                                        extra_tool_iters=extra)
+        scratch = self.memory.working.scratch
+        sig_counts: dict[str, int] = scratch.setdefault("_tool_sig_counts", {})
+        output = self.executor.execute(
+            step.description, context, review, prior,
+            self._directives(state), key_directives=plan.key_directives,
+            sig_counts=sig_counts,
+        )
         # Don't let the replan sentinel leak into artifacts/memory once we can no
         # longer replan — turn it into an honest failure the reviewer can judge.
         if (output.lstrip().startswith("REPLAN_NEEDED")
@@ -315,13 +320,29 @@ class CodingAgentGraph:
         return {"step_output": output, "events": [ev_start, ev]}
 
     def _route_after_execute(self, state: AgentState) -> str:
-        """A shell timeout (REPLAN_NEEDED) reroutes to replan when budget allows;
-        otherwise the step is reviewed normally (and will fail honestly)."""
         output = state.get("step_output", "") or ""
+        if output.lstrip().startswith("MICRO_REPLAN_NEEDED"):
+            return "micro_replan"
         if output.lstrip().startswith("REPLAN_NEEDED"):
             if state.get("plan_revisions", 0) < self.settings.max_plan_revisions:
                 return "replan"
         return "exec_review"
+
+    def _micro_replan_node(self, state: AgentState) -> dict:
+        """Unreviewed local plan patch after repeated identical tool calls."""
+        output = state.get("step_output", "") or ""
+        detail = output.replace("MICRO_REPLAN_NEEDED:", "", 1).strip()
+        sig = detail.split("\n", 1)[0] if detail else "unknown"
+        trace = detail.split("\n", 1)[-1] if "\n" in detail else detail
+        plan = Plan(**state["plan"])
+        idx = state.get("current_step", 0)
+        plan = self._micro_planner.patch(
+            state["user_request"], plan, idx, sig, trace,
+        )
+        scratch = self.memory.working.scratch
+        scratch["_tool_sig_counts"] = {}
+        ev = self._emit("micro_replan", sig=sig, step=idx + 1)
+        return {"plan": plan.model_dump(), "step_output": "", "events": [ev]}
 
     def _replan_node(self, state: AgentState) -> dict:
         """Triggered when a step's command timed out. Feed the timeout back to the
@@ -602,7 +623,20 @@ class CodingAgentGraph:
         should_loop = (not check.all_satisfied and bool(check.unmet)
                        and revs < self.settings.max_directive_revisions)
         if not should_loop:
-            return {"directive_check": check.model_dump(), "directive_loop": False, "events": [ev]}
+            cont = False
+            if check.all_satisfied:
+                pr = state.get("plan_round", 0)
+                # Multi-round only when no remedial directive loops ran this round.
+                if (pr + 1 < self.settings.max_plan_rounds
+                        and state.get("directive_revisions", 0) == 0):
+                    if state.get("difficulty", 0.5) >= 0.55 and len(plan.steps) >= 6:
+                        cont = True
+            return {
+                "directive_check": check.model_dump(),
+                "directive_loop": False,
+                "continue_next_round": cont,
+                "events": [ev],
+            }
 
         # Append unmet directives as remedial steps and loop back to execute.
         next_id = max((s.id for s in plan.steps), default=0)
@@ -619,7 +653,29 @@ class CodingAgentGraph:
         }
 
     def _route_after_directive_gate(self, state: AgentState) -> str:
-        return "execute" if state.get("directive_loop") else "finalize"
+        if state.get("directive_loop"):
+            return "execute"
+        if state.get("continue_next_round"):
+            return "next_plan_round"
+        return "finalize"
+
+    def _next_plan_round_node(self, state: AgentState) -> dict:
+        """Start another planning round after completing current plan goals."""
+        plan_round = state.get("plan_round", 0) + 1
+        log.info("node=next_plan_round round=%d", plan_round)
+        ev = self._emit("plan_round", round=plan_round)
+        return {
+            "plan_round": plan_round,
+            "current_step": 0,
+            "plan": {},
+            "plan_review": {},
+            "plan_revisions": 0,
+            "exec_review": {},
+            "exec_revisions": 0,
+            "step_output": "",
+            "continue_next_round": False,
+            "events": [ev],
+        }
 
     def _finalize_node(self, state: AgentState) -> dict:
         from .report_validation import (
@@ -730,6 +786,8 @@ class CodingAgentGraph:
         g.add_node("revise_exec", self._revise_exec_node)
         g.add_node("advance", self._advance_node)
         g.add_node("directive_gate", self._directive_gate_node)
+        g.add_node("next_plan_round", self._next_plan_round_node)
+        g.add_node("micro_replan", self._micro_replan_node)
         g.add_node("finalize", self._finalize_node)
 
         g.add_edge(START, "prepare_workspace")
@@ -739,16 +797,23 @@ class CodingAgentGraph:
                                 {"revise_plan": "revise_plan", "execute": "execute"})
         g.add_edge("revise_plan", "plan")
         g.add_conditional_edges("execute", self._route_after_execute,
-                                {"replan": "replan", "exec_review": "exec_review"})
+                                {"replan": "replan", "micro_replan": "micro_replan",
+                                 "exec_review": "exec_review"})
         g.add_edge("replan", "plan")
+        g.add_edge("micro_replan", "execute")
         g.add_conditional_edges("exec_review", self._route_after_exec_review,
                                 {"revise_exec": "revise_exec", "advance": "advance"})
         g.add_edge("revise_exec", "execute")
         g.add_conditional_edges("advance", self._route_after_advance,
                                 {"execute": "execute", "directive_gate": "directive_gate"})
         g.add_conditional_edges("directive_gate", self._route_after_directive_gate,
-                                {"execute": "execute", "finalize": "finalize"})
+                                {"execute": "execute", "next_plan_round": "next_plan_round",
+                                 "finalize": "finalize"})
+        g.add_edge("next_plan_round", "plan")
         g.add_edge("finalize", END)
+        cp = self._checkpointer
+        if self.settings.enable_checkpoints and cp is not None:
+            return g.compile(checkpointer=cp)
         if self.settings.enable_checkpoints:
             return g.compile(checkpointer=MemorySaver())
         return g.compile()

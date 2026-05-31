@@ -6,9 +6,9 @@ kebab-case label for logs and delivery notes (e.g. ``path-guard``).
 
 from __future__ import annotations
 
-__version__ = "2.1.5"
-RELEASE_TAG = "portable-install"  # cross-platform install, API configure wizard (2026-05-30)
-RELEASE_DATE = "2026-05-30"
+__version__ = "3.0.0"
+RELEASE_TAG = "multi-chat"  # multi-session concurrent, tab complete, token display, undo (2026-05-30)
+RELEASE_DATE = "2026-05-31"
 
 
 def version_line() -> str:

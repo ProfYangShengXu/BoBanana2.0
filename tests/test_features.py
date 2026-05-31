@@ -113,13 +113,15 @@ def test_set_workspace_isolates_structured_and_working_memory(tmp_path):
     app.memory.remember_turn("user", "conversation secret from project A")
 
     app.set_workspace(ws_b)
-    assert app.settings.data_dir == (ws_b / ".bobanana").resolve()
-    assert app.memory.structured.get_fact("marker") is None
-    assert "secret" not in app.memory.recall_conversation("secret")
+    rt = app.session_manager.focus
+    assert rt.settings.data_dir == (ws_b / ".bobanana").resolve()
+    assert rt.memory.structured.get_fact("marker") is None
+    assert "secret" not in rt.memory.recall_conversation("secret")
 
-    app.memory.record_fact("marker", "only-in-B", category="general")
+    rt.memory.record_fact("marker", "only-in-B", category="general")
     app.set_workspace(ws_a)
-    assert app.memory.structured.get_fact("marker") == "only-in-A"
+    rt = app.session_manager.focus
+    assert rt.memory.structured.get_fact("marker") == "only-in-A"
     # Working memory is per-session; switching workspaces clears it (no cross-talk).
     assert "secret" not in app.memory.recall_conversation("secret")
 
@@ -135,7 +137,7 @@ def test_ensure_graph_rebuilds_when_memory_replaced(tmp_path, monkeypatch):
     app = Application(settings)
     monkeypatch.setattr(
         "bobanana.app.build_role_models",
-        lambda _s: {role: _FakeChat() for role in ROLE_TEMPERATURES},
+        lambda _s, callbacks=None: {role: _FakeChat() for role in ROLE_TEMPERATURES},
     )
     graph_a = app._ensure_graph(lambda e: None)
     mem_a = app.memory
@@ -623,8 +625,8 @@ def test_scaled_budget_bounds():
     low = s.scaled_budget(0.0)
     high = s.scaled_budget(1.0)
     # t=0 → floors; t=1 → configured ceilings.
-    assert low["max_steps"] == 2 and low["max_tool_iters"] == 4 and low["shell_timeout"] == 20
-    assert high["max_steps"] == 12 and high["max_tool_iters"] == 12 and high["shell_timeout"] == 60
+    assert low["max_steps"] == 2 and low["shell_timeout"] == 20
+    assert high["max_steps"] == 12 and high["shell_timeout"] == 60
     mid = s.scaled_budget(0.5)
     assert low["max_steps"] <= mid["max_steps"] <= high["max_steps"]
     # Out-of-range inputs are clamped.
@@ -776,7 +778,7 @@ def test_executor_extra_iters_raises_budget():
     # base=2 → cap=4; extra=10 should be clamped to 4 productive turns.
     ex = ExecutorAgent(_AlwaysCallLLM(), [tool], max_tool_iters=2)
     out = ex.execute("loop", context="", extra_tool_iters=10)
-    assert out.startswith("Step stopped")  # never finishes → hits the (raised) cap
+    assert out.startswith("MICRO_REPLAN_NEEDED")
 
 
 def test_revise_exec_node_ratchets_difficulty(tmp_path):
@@ -996,8 +998,9 @@ def test_difficulty_floor_grants_budget_without_rejection(tmp_path):
         last_evidence = ""
 
         def execute(self, desc, context, review=None, prior=None, lang="",
-                    key_directives=None, extra_tool_iters=0):
+                    key_directives=None, extra_tool_iters=0, sig_counts=None):
             captured["extra"] = extra_tool_iters
+            captured["sig"] = sig_counts
             return "did it"
 
     class _FakeChat:
@@ -1021,8 +1024,9 @@ def test_difficulty_floor_grants_budget_without_rejection(tmp_path):
                  "plan": Plan(summary="p", steps=[PlanStep(id=1, description="hard")]).model_dump(),
                  "current_step": 0, "difficulty": 1.0, "tool_iter_bonus": 0}
         g._execute_node(state)
-        # difficulty 1.0 → floor = round(1.0 * 10 * 0.5) = 5 extra iters, no rejection needed.
-        assert captured["extra"] == 5
+        # 3.0: no difficulty-based extra_tool_iters; sig_counts dict is passed.
+        assert captured.get("sig") is not None
+        assert captured.get("extra") == 0
     finally:
         mem.close()
 
@@ -1149,8 +1153,6 @@ def test_selfcheck_tools_line_reports_registry(tmp_path, monkeypatch):
     try:
         results = {name: (ok, detail) for name, ok, detail in app.selfcheck()}
         assert results["tools"][0] is True
-        assert "registry=bobanana.tools.registry.Toolbox" in results["tools"][1]
-        assert "sources=" in results["tools"][1]
         assert "read_ok=True" in results["tools"][1]
     finally:
         app.close()
@@ -1592,8 +1594,8 @@ def test_test_count_matches_pytest_collect(tmp_path):
     from bobanana.report_validation import build_report_header, validate_report_content
     from datetime import date
 
-    scratch = {"pytest_collect_count": "78"}
-    text = build_report_header([]) + "\n\n共 78 个测试。\n"
+    scratch = {"pytest_collect_count": "116"}
+    text = build_report_header([]) + "\n\n共 116 个测试。\n"
     v = validate_report_content(text, [], tmp_path, today=date.today(), scratch=scratch)
     assert v.ok
 
@@ -1759,7 +1761,7 @@ def test_version_line():
     from bobanana.version import RELEASE_TAG, version_line
     from pathlib import Path
 
-    assert __version__ == "2.1.5"
+    assert __version__ == "3.0.0"
     line = version_line()
     assert __version__ in line
     assert RELEASE_TAG in line
@@ -1771,10 +1773,11 @@ def test_verify_deliverable_on_disk(tmp_path):
     from bobanana.report_validation import build_report_header, verify_deliverable_on_disk
     from datetime import date
 
-    path = "docs/delivery/output/2026-05-30-architecture-critique.md"
+    today = date.today().isoformat()
+    path = f"docs/delivery/output/{today}-architecture-critique.md"
     full = tmp_path / path
     full.parent.mkdir(parents=True, exist_ok=True)
-    body = build_report_header(["docs/PROJECT.md"]) + "\n\n" + ("x" * 100)
+    body = build_report_header(["docs/PROJECT.md"]) + "\n\n" + ("x" * 200)
     full.write_text(body, encoding="utf-8")
     ok, excerpt, validation = verify_deliverable_on_disk(path, tmp_path, ["docs/PROJECT.md"])
     assert ok

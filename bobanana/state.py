@@ -120,6 +120,9 @@ class AgentState(TypedDict, total=False):
     directive_check: dict  # serialized DirectiveCheck (last gate verdict)
     directive_loop: bool  # gate decision: loop back to execute vs proceed to finalize
 
+    plan_round: int  # multi-round planning (0-based)
+    continue_next_round: bool  # planner wants another plan round after directive gate
+
     # Steps that were advanced WITHOUT passing review (budget exhausted) — never
     # silently treated as success; surfaced honestly in the final result.
     failed_steps: List[dict]
@@ -157,6 +160,8 @@ def new_state(user_request: str, difficulty: float = 0.5) -> AgentState:
         "exec_review": {},
         "exec_revisions": 0,
         "directive_revisions": 0,
+        "plan_round": 0,
+        "continue_next_round": False,
         "failed_steps": [],
         "difficulty": max(0.0, min(1.0, float(difficulty))),
         "tool_iter_bonus": 0,

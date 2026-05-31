@@ -57,7 +57,8 @@ def wrap_structured_output(llm, schema: Type[T], settings: Settings):
     return llm.with_structured_output(schema, method=method)
 
 
-def build_chat_model(settings: Settings, temperature: float | None = None):
+def build_chat_model(settings: Settings, temperature: float | None = None,
+                     callbacks: list | None = None):
     """Create a chat LLM. Raises a clear error if no API key is configured.
 
     ``temperature`` overrides the global default when provided (used for the
@@ -82,6 +83,8 @@ def build_chat_model(settings: Settings, temperature: float | None = None):
         kwargs["timeout"] = settings.llm_timeout
     if settings.base_url:
         kwargs["base_url"] = settings.base_url
+    if callbacks:
+        kwargs["callbacks"] = callbacks
     return ChatOpenAI(**kwargs)
 
 
@@ -89,7 +92,7 @@ def role_temperature(settings: Settings, role: str) -> float:
     return ROLE_TEMPERATURES.get(role, settings.temperature)
 
 
-def build_role_models(settings: Settings) -> dict:
+def build_role_models(settings: Settings, callbacks: list | None = None) -> dict:
     """Build one chat model per agent role with its layered temperature."""
-    return {role: build_chat_model(settings, temperature=temp)
+    return {role: build_chat_model(settings, temperature=temp, callbacks=callbacks)
             for role, temp in ROLE_TEMPERATURES.items()}

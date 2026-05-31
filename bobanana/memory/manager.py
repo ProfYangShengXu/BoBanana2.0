@@ -28,14 +28,18 @@ def _tokens(text: str) -> set[str]:
 
 
 class MemoryManager:
-    def __init__(self, data_dir: Path, workspace: Path | None = None) -> None:
+    def __init__(self, data_dir: Path, workspace: Path | None = None,
+                 session_id: str | None = None) -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir = data_dir.resolve()
         self.workspace: Path | None = workspace.resolve() if workspace else None
+        self.session_id = session_id
         self.working = WorkingMemory()
         self.structured = StructuredMemory(self.data_dir / "structured.db")
         if self.workspace is not None:
             self.working.set_scratch("workspace_root", str(self.workspace))
+        if session_id:
+            self.working.set_scratch("session_id", session_id)
 
     # ----- conversation (working memory only) -----
     def remember_turn(self, role: str, content: str) -> None:

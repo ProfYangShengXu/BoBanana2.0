@@ -1,12 +1,10 @@
-"""Executor agent — the "main" agent in the execution loop.
-
-Runs a bounded ReAct tool-calling loop to accomplish a single plan step, then
-revises its work when the reviewer returns suggestions.
-"""
+"""Executor agent — ReAct tool loop for a single plan step (no hard tool-iter cap in 3.0)."""
 
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from typing import Callable, List
 
 from langchain_core.messages import (
@@ -24,7 +22,6 @@ log = get_logger("executor")
 
 
 def _invoke_tool(tool, args: dict):
-    """Invoke a tool synchronously, falling back to async (e.g. MCP tools)."""
     try:
         return tool.invoke(args)
     except NotImplementedError:
@@ -32,9 +29,6 @@ def _invoke_tool(tool, args: dict):
 
 
 def _is_nonproductive(tool_name: str, args: dict, result: str) -> bool:
-    """A tool call is non-productive when it errored, used an empty path, or returned
-    no useful exploration content. Cached read_file/list_dir WITH content still counts
-    as productive — the agent obtained the information."""
     r = str(result).lstrip()
     if r.startswith("Step stopped"):
         return True
@@ -49,6 +43,14 @@ def _is_nonproductive(tool_name: str, args: dict, result: str) -> bool:
     if isinstance(path, str) and not path.strip():
         return True
     return False
+
+
+def tool_call_signature(name: str, args: dict) -> str:
+    try:
+        return f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+    except TypeError:
+        return f"{name}:{args!s}"
+
 
 SYSTEM = """You are the EXECUTOR for a terminal coding agent.
 Accomplish the CURRENT STEP only, using the available tools (read_file, \
@@ -73,8 +75,6 @@ use fetch_url for external URLs.
 
 Host environment: {shell_env}"""
 
-
-# Caps so the evidence block can't blow up the reviewer's context.
 _EV_WRITE_CHARS = 600
 _EV_SHELL_CHARS = 800
 _EV_TOTAL_CHARS = 3000
@@ -82,22 +82,19 @@ _EV_TOTAL_CHARS = 3000
 
 class ExecutorAgent:
     def __init__(self, llm, tools, max_tool_iters: int = 8,
-                 on_tool: Callable[[str, dict, str], None] | None = None) -> None:
+                 on_tool: Callable[[str, dict, str], None] | None = None,
+                 step_timeout: int = 600,
+                 repeat_threshold: int = 3) -> None:
         self._llm = llm.bind_tools(tools)
         self._tools = {t.name: t for t in tools}
-        self.max_tool_iters = max_tool_iters
+        self.max_tool_iters = max_tool_iters  # legacy; not used as hard cap in 3.0
         self._on_tool = on_tool
-        # Ground-truth evidence from the most recent execute() call: the actual
-        # files written and command outputs, so the reviewer judges real artifacts
-        # rather than the executor's self-report.
+        self.step_timeout = step_timeout
+        self.repeat_threshold = repeat_threshold
         self.last_evidence: str = ""
 
     @staticmethod
     def _evidence_line(name: str, args: dict, result: str) -> str | None:
-        """Render one mutating/verifying tool call as review evidence.
-
-        Only write_file / run_shell are evidence of real change or verification;
-        read-only exploration (read_file/list_dir) is not."""
         if name == "write_file":
             path = str(args.get("path", "?"))
             content = str(args.get("content", ""))
@@ -122,13 +119,13 @@ class ExecutorAgent:
     def execute(self, step_description: str, context: str,
                 review: ReviewResult | None = None, prior_output: str | None = None,
                 lang_directive: str = "", key_directives: list[str] | None = None,
-                extra_tool_iters: int = 0) -> str:
-        # Adaptive budget: difficulty raises the per-step iteration budget, capped at
-        # 2x the base so a hard step gets more room without running away.
-        effective_iters = min(self.max_tool_iters + max(0, extra_tool_iters),
-                              self.max_tool_iters * 2)
+                extra_tool_iters: int = 0,
+                sig_counts: dict[str, int] | None = None) -> str:
         evidence: List[str] = []
         self.last_evidence = ""
+        sig_counts = sig_counts if sig_counts is not None else {}
+        recent_trace: list[str] = []
+
         instruction = [
             f"CURRENT STEP:\n{step_description}",
             f"\nMemory context:\n{context}",
@@ -143,8 +140,6 @@ class ExecutorAgent:
             instruction.append("\nYour previous attempt produced:\n" + prior_output)
             budget_exhausted = prior_output.lstrip().startswith("Step stopped")
             if budget_exhausted:
-                # Not a quality failure — the previous attempt ran out of tool
-                # iterations while exploring. Push it straight to the core action.
                 instruction.append(
                     "\nIMPORTANT: the previous attempt did NOT fail on quality — it ran out of "
                     "tool iterations while exploring. Do NOT repeat that exploration. Relevant "
@@ -171,28 +166,30 @@ class ExecutorAgent:
             HumanMessage(content="\n".join(instruction)),
         ]
 
-        # Only successful tool turns consume the budget; failed/empty-path calls
-        # don't count. A separate hard cap on total attempts prevents infinite loops.
         def _commit_evidence() -> None:
             joined = "\n".join(evidence)
             self.last_evidence = (joined[:_EV_TOTAL_CHARS] + "\n…(more evidence truncated)"
                                   if len(joined) > _EV_TOTAL_CHARS else joined)
 
-        productive = 0
+        start = time.monotonic()
         attempts = 0
-        hard_cap = effective_iters * 4 + 4
-        while productive < effective_iters and attempts < hard_cap:
+        max_attempts = 200  # safety fuse only
+
+        while attempts < max_attempts:
+            if self.step_timeout and self.step_timeout > 0:
+                if time.monotonic() - start > self.step_timeout:
+                    _commit_evidence()
+                    return f"Step stopped: step wall-clock timeout ({self.step_timeout}s)."
+
             attempts += 1
             ai: AIMessage = self._llm.invoke(messages)
             messages.append(ai)
             tool_calls = getattr(ai, "tool_calls", None) or []
             if not tool_calls:
-                log.debug("executor finished after %d productive iteration(s), %d attempt(s)",
-                          productive, attempts)
+                log.debug("executor finished after %d attempt(s)", attempts)
                 _commit_evidence()
                 return ai.content if isinstance(ai.content, str) else str(ai.content)
 
-            turn_productive = False
             timeout_detail: str | None = None
             for call in tool_calls:
                 name = call["name"]
@@ -204,17 +201,26 @@ class ExecutorAgent:
                 else:
                     try:
                         result = _invoke_tool(tool, args)
-                    except Exception as exc:  # surface to model so it can recover
+                    except Exception as exc:
                         log.error("tool %s raised: %s", name, exc)
                         result = f"ERROR running {name}: {exc}"
                 result_str = str(result)
-                # Only real shell timeouts trigger replan — NOT read_file content that
-                # happens to mention "ERROR: TIMEOUT" in source code (5.30 bug).
+                sig = tool_call_signature(name, args)
+                if not _is_nonproductive(name, args, result_str):
+                    sig_counts[sig] = sig_counts.get(sig, 0) + 1
+                    recent_trace.append(f"{sig} -> {result_str[:120]}")
+                    if len(recent_trace) > 8:
+                        recent_trace.pop(0)
+                    if sig_counts[sig] >= self.repeat_threshold:
+                        log.warning("repeat tool sig %s x%d — micro replan", sig, sig_counts[sig])
+                        _commit_evidence()
+                        trace = "\n".join(recent_trace)
+                        return f"MICRO_REPLAN_NEEDED:{sig}\n{trace}"
+
                 if name == "run_shell" and result_str.lstrip().startswith("ERROR: TIMEOUT"):
                     if timeout_detail is None:
                         timeout_detail = result_str.strip().splitlines()[0]
                 if not _is_nonproductive(name, args, result_str):
-                    turn_productive = True
                     line = self._evidence_line(name, args, result_str)
                     if line:
                         evidence.append(line)
@@ -222,19 +228,10 @@ class ExecutorAgent:
                     self._on_tool(name, args, result_str)
                 messages.append(ToolMessage(content=result_str, tool_call_id=call["id"]))
 
-            # A command timeout means the chosen approach is stuck; bubble up a
-            # replan signal instead of letting the model retry the same thing.
             if timeout_detail is not None:
                 log.warning("executor hit shell timeout — requesting replan: %s", timeout_detail)
                 _commit_evidence()
                 return f"REPLAN_NEEDED: {timeout_detail}"
 
-            if turn_productive:
-                productive += 1
-            else:
-                log.debug("non-productive turn (all calls failed/empty) — not counted; "
-                          "attempt %d/%d", attempts, hard_cap)
-
         _commit_evidence()
-        reason = "max tool iterations" if productive >= effective_iters else "retry limit (too many failed calls)"
-        return f"Step stopped: reached {reason}. Partial work may exist; review needed."
+        return "Step stopped: safety attempt limit reached."

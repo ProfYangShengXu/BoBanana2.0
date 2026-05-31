@@ -22,27 +22,33 @@ BANNER = r"""
 HELP = """\
 命令一览（{ver_line}）：
   /help               显示本帮助
-  /open-folder [路径] 选择代码工作区（弹出原生对话框，或直接传路径）
+  /chat new [标题]    新建对话窗口并切换
+  /chat list          列出所有窗口（id / 状态 / token）
+  /chat switch <id|#> 跳转到指定窗口并回放最近输出
+  /chat kill <id>     终止后台任务
+  /chat rename <标题> 重命名当前窗口
+  /chat delete <id>   删除窗口（需无运行中任务）
+  /undo               撤销当前窗口最近一轮（文件+记忆+graph）
+  /open-folder [路径] 选择代码工作区
   /workspace          显示当前工作区
-  /memory             查看记忆摘要与已跟踪的文件/事实
-  /recall <关键词>    在最近的对话轮次中按关键词检索
-  /skills             列出可调用的外部技能
-  /skill <名称>       打印某技能的 SKILL.md 指引
-  /tools              列出 executor 工具注册表（semver / 权限 / 来源）
-  /reload-tools       热加载 .bobanana/tools/ 下的插件
-  /mcp                查看 MCP 加载状态与工具
-  /load-agent-reach   克隆并注册 Agent-Reach 技能库
-  /debug [on|off]     切换终端内的详细运行日志
-  /resume             继续上一个被中断（超时/Ctrl-C）的任务
-  /rollback [编号]    回退到更早的检查点并继续（不带编号则列出可选项）
-  /clear mind          清空任务污染记忆（轮次+探索缓存+plan facts；保留 index/catalog）
-  /clear               清空工作记忆含 scratch（更彻底；保留长期 files 表）
-  /restart            重启程序（重载代码，保留命令行参数）
+  /memory             查看记忆摘要
+  /recall <关键词>    关键词检索对话
+  /skills             列出技能
+  /skill <名称>       打印 SKILL.md
+  /tools              工具注册表
+  /reload-tools       热加载插件
+  /mcp                MCP 状态
+  /load-agent-reach   克隆 Agent-Reach
+  /debug [on|off]     调试日志
+  /resume             继续当前窗口中断的任务
+  /rollback [编号]    回退检查点
+  /clear mind          清空任务污染记忆
+  /clear               清空工作记忆含 scratch
+  /restart            重启程序
   /quit, /exit        退出
 
-其余输入都会被当作编码任务交给智能体。
-任务较大或描述不清时，会先做一次快速的元提示（澄清/细化）。
-运行中按 Ctrl-C 可中断当前任务并等待你的进一步指令（继续/回退/放弃/改指令）。
+普通输入提交到**当前窗口**后台执行（可同时跑多个窗口，/chat list 查看）。
+Tab 补全 slash 命令。提示符显示 [窗口id|tok:累计token]。
 """
 
 
@@ -92,6 +98,18 @@ class TerminalUI:
             else:
                 title, border = "Result · completed", "bold magenta"
             self.console.print(Panel(Markdown(event["summary"]), title=title, border_style=border))
+        elif kind == "micro_replan":
+            self.console.print(Panel(
+                f"重复工具调用 {event.get('sig', '?')} — 无审查微规划调整步骤 {event.get('step')}",
+                title="Micro replan", border_style="yellow"))
+        elif kind == "plan_round":
+            self.console.print(f"[cyan]▶ 规划第 {event.get('round')} 轮[/]")
+        elif kind == "token_usage":
+            self.console.print(
+                f"[dim]tokens +{event.get('input', 0)}/{event.get('output', 0)} "
+                f"(Δ{event.get('total', 0)})[/]")
+        elif kind == "error":
+            self.console.print(Panel(str(event.get("message", "?")), title="Error", border_style="red"))
 
     def _render_plan(self, event: dict) -> None:
         plan = event["plan"]
@@ -265,23 +283,119 @@ class TerminalUI:
         except OSError as exc:
             self.console.print(Panel(f"restart failed: {exc}", title="Error", border_style="red"))
 
+    def _cmd_chat(self, arg: str) -> None:
+        parts = arg.split(None, 1)
+        sub = (parts[0] if parts else "").lower()
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        sm = self.app.session_manager
+
+        if sub in ("", "list"):
+            sessions = sm.list_sessions()
+            t = Table(title="Chat windows", show_header=True, header_style="bold")
+            t.add_column("#", style="dim", width=3)
+            t.add_column("id")
+            t.add_column("title")
+            t.add_column("status")
+            t.add_column("tokens", justify="right")
+            t.add_column("workspace", max_width=30)
+            for i, s in enumerate(sessions):
+                mark = "*" if s.id == sm.focus_id else " "
+                tok = s.token_input + s.token_output
+                t.add_row(f"{mark}{i}", s.id, s.title, s.status.value, str(tok),
+                          str(s.workspace)[-30:])
+            self.console.print(t)
+            return
+
+        if sub == "new":
+            s = sm.create(rest or "")
+            self.console.print(f"[green]new chat {s.id} — {s.title}[/]")
+            return
+
+        if sub == "switch":
+            if not rest:
+                self.console.print("[red]usage: /chat switch <id|#>[/]")
+                return
+            s = sm.switch(rest)
+            if s is None:
+                self.console.print(f"[red]unknown session: {rest}[/]")
+                return
+            self.console.print(f"[green]switched to {s.id} — {s.title}[/]")
+            rt = sm.get(s.id)
+            if rt:
+                for ev in rt.event_buffer.tail(40):
+                    self.render_event(ev)
+            return
+
+        if sub == "kill":
+            if not rest:
+                rest = sm.focus_id or ""
+            if self.app.task_runner.kill(rest):
+                self.console.print(f"[yellow]killed task on {rest}[/]")
+            else:
+                self.console.print(f"[dim]no running task for {rest}[/]")
+            return
+
+        if sub == "rename":
+            if not rest:
+                self.console.print("[red]usage: /chat rename <title>[/]")
+                return
+            sm.rename_focus(rest)
+            self.console.print("[green]renamed[/]")
+            return
+
+        if sub == "delete":
+            if not rest:
+                self.console.print("[red]usage: /chat delete <id>[/]")
+                return
+            if self.app.task_runner.is_running(rest):
+                self.console.print("[red]stop task first (/chat kill)[/]")
+                return
+            if sm.delete(rest):
+                self.console.print(f"[green]deleted {rest}[/]")
+            else:
+                self.console.print(f"[red]unknown session {rest}[/]")
+            return
+
+        self.console.print("[red]usage: /chat new|list|switch|kill|rename|delete[/]")
+
+    def _cmd_undo(self) -> None:
+        result = self.app.undo_last_turn()
+        style = "green" if result.startswith("OK") else "red"
+        self.console.print(Panel(result, title="undo", border_style=style))
+
+    def _drain_focus_events(self) -> None:
+        rt = self.app.session_manager.focus
+        if rt is None:
+            return
+        new, cursor = rt.event_buffer.drain_since(rt.event_cursor)
+        rt.event_cursor = cursor
+        for ev in new:
+            self.render_event(ev)
+
     # ----- main loop -----
     def run(self) -> None:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import InMemoryHistory
 
-        self.console.print(Text(BANNER.format(ver=version_short()), style="bold yellow"))
-        self.console.print(f"[dim]{version_line()} · variant-ReAct · layered memory[/]")
-        if not self.app.settings.has_llm:
-            self.console.print("[yellow]No OPENAI_API_KEY set — live runs disabled. "
-                               "Set it in .env to enable. Try /memory or /quit.[/]")
-        self.console.print("Type /help for commands.\n")
+        from .tui_completer import build_completer, prompt_label
 
-        session: PromptSession = PromptSession(history=InMemoryHistory())
+        self.console.print(Text(BANNER.format(ver=version_short()), style="bold yellow"))
+        self.console.print(f"[dim]{version_line()} · multi-chat · Tab 补全[/]")
+        if not self.app.settings.has_llm:
+            self.console.print("[yellow]No OPENAI_API_KEY set — live runs disabled.[/]")
+        self.console.print("Type /help for commands. /chat list 查看窗口。\n")
+
+        completer = build_completer(self.app)
+        session: PromptSession = PromptSession(
+            history=InMemoryHistory(),
+            completer=completer,
+            complete_while_typing=True,
+        )
         self._session = session
         while True:
+            self._drain_focus_events()
             try:
-                text = session.prompt("bobanana> ").strip()
+                text = session.prompt(prompt_label(self.app)).strip()
             except (EOFError, KeyboardInterrupt):
                 self.console.print("\n[dim]bye[/]")
                 break
@@ -291,6 +405,12 @@ class TerminalUI:
                 break
             if text == "/help":
                 self.console.print(HELP.format(ver_line=version_line()))
+                continue
+            if text.startswith("/chat"):
+                self._cmd_chat(text[len("/chat"):].strip())
+                continue
+            if text == "/undo":
+                self._cmd_undo()
                 continue
             if text.startswith("/open-folder") or text.startswith("/open folder"):
                 arg = text.split(None, 1)[1] if " " in text else ""
@@ -354,9 +474,59 @@ class TerminalUI:
                 self.console.print(f"[red]unknown command: {text}[/] (try /help)")
                 continue
 
-            self._run_task(text, session)
+            self._submit_task(text, session)
 
         self.app.close()
+
+    def _submit_task(self, text: str, session=None) -> None:
+        if not self.app.settings.has_llm:
+            self.console.print("[red]Cannot run: no OPENAI_API_KEY configured.[/]")
+            return
+
+        rt = self.app.session_manager.focus
+        if rt is None:
+            self.console.print("[red]no active chat session[/]")
+            return
+        sid = rt.session.id
+
+        if self.app.task_runner.is_running(sid):
+            self.console.print("[yellow]当前窗口任务仍在运行 — /chat new 开新窗口或 /chat kill[/]")
+            return
+
+        intent = self._intent_and_budget(text, session, rt) if session is not None else None
+
+        if intent is not None and intent.task_size < 0.12 and not intent.is_code_task:
+            try:
+                with self.console.status("[bold green]…", spinner="dots"):
+                    reply = self.app.chat_reply(text, rt)
+                self.console.print(Panel(Markdown(reply), title="BoBanana", border_style="cyan"))
+                rt.store.append_turn("user", text)
+                rt.store.append_turn("assistant", reply)
+            except Exception as exc:
+                self.console.print(Panel(f"{type(exc).__name__}: {exc}", title="Error", border_style="red"))
+            return
+
+        difficulty = intent.task_size if intent is not None else 0.5
+        if session is not None:
+            if intent is not None:
+                should_meta = intent.needs_metaprompt
+            else:
+                from .triage import should_metaprompt
+                should_meta = should_metaprompt(text)
+            final = self._maybe_metaprompt(text, session, should_meta)
+            if final is None:
+                return
+            text = final
+
+        try:
+            self.app.submit_task(sid, text, on_event=self.render_event, difficulty=difficulty)
+            self.console.print(f"[dim]task started on [{sid[:6]}] — /chat list 查看状态[/]")
+        except Exception as exc:
+            self.console.print(Panel(f"{type(exc).__name__}: {exc}", title="Error", border_style="red"))
+
+    def _run_task(self, text: str, session=None) -> None:
+        """Sync run (legacy / interrupt handler)."""
+        self._submit_task(text, session)
 
     def _maybe_metaprompt(self, text: str, session, should_run: bool) -> str | None:
         """Run meta-prompting for large/unclear tasks.
@@ -397,62 +567,20 @@ class TerminalUI:
             return refined
         return text
 
-    def _intent_and_budget(self, text: str):
-        """Run the intent layer (size + metaprompt decision) and scale the budget.
-
-        Returns the Intent, or None if the intent layer is disabled/unavailable
-        (callers then fall back to heuristics)."""
+    def _intent_and_budget(self, text: str, session, rt=None):
         if not self.app.settings.enable_intent:
             return None
         try:
             with self.console.status("[bold green]reading intent…", spinner="dots"):
-                intent = self.app.classify_intent(text)
+                intent = self.app.classify_intent(text, rt)
         except Exception as exc:
             self.console.print(f"[yellow]intent skipped: {type(exc).__name__}: {exc}[/]")
             return None
-        scaled = self.app.apply_budget(intent.task_size, text)
+        scaled = self.app.apply_budget(intent.task_size, text, rt)
         self.console.print(
             f"[dim]intent: size={intent.task_size:.2f} code={intent.is_code_task} "
-            f"steps≤{scaled['max_steps']} tools≤{scaled['max_tool_iters']} — {intent.reason}[/]")
+            f"steps≤{scaled['max_steps']} — {intent.reason}[/]")
         return intent
-
-    def _run_task(self, text: str, session=None) -> None:
-        if not self.app.settings.has_llm:
-            self.console.print("[red]Cannot run: no OPENAI_API_KEY configured.[/]")
-            return
-
-        intent = self._intent_and_budget(text) if session is not None else None
-
-        # Greeting / small-talk shortcut: answer directly, skip the pipeline.
-        if intent is not None and intent.task_size < 0.12 and not intent.is_code_task:
-            try:
-                with self.console.status("[bold green]…", spinner="dots"):
-                    reply = self.app.chat_reply(text)
-                self.console.print(Panel(Markdown(reply), title="BoBanana", border_style="cyan"))
-            except Exception as exc:
-                self.console.print(Panel(f"{type(exc).__name__}: {exc}", title="Error", border_style="red"))
-            return
-
-        difficulty = intent.task_size if intent is not None else 0.5
-        if session is not None:
-            if intent is not None:
-                should_meta = intent.needs_metaprompt
-            else:
-                from .triage import should_metaprompt
-                should_meta = should_metaprompt(text)
-            final = self._maybe_metaprompt(text, session, should_meta)
-            if final is None:
-                return
-            text = final
-        try:
-            with self.console.status("[bold green]thinking…  [dim](Ctrl-C 中断)[/]", spinner="dots"):
-                result = self.app.run_task(text, on_event=self._event_under_status,
-                                           difficulty=difficulty)
-        except Exception as exc:
-            self.console.print(Panel(f"{type(exc).__name__}: {exc}", title="Error", border_style="red"))
-            return
-        if result and result.get("interrupted"):
-            self._handle_interrupt(session)
 
     def _handle_interrupt(self, session) -> None:
         """After a timeout/Ctrl-C interrupt, ask the user how to proceed."""

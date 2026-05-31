@@ -105,6 +105,7 @@ class Toolbox:
         plugin_dir: Optional[Path] = None,
         enable_plugins: bool = True,
         permission_policy: Optional[PermissionPolicy] = None,
+        turn_journal=None,
     ) -> None:
         self.workspace = workspace
         self.files = FileOps(workspace)
@@ -117,6 +118,7 @@ class Toolbox:
         self._enable_plugins = enable_plugins
         self._plugin_dir = plugin_dir or (workspace / ".bobanana" / "tools")
         self._policy = permission_policy or PermissionPolicy()
+        self._turn_journal = turn_journal
         self._specs: dict[str, ToolSpec] = {}
         self._plugin_loader: PluginLoader | None = None
         self._tools = self._build()
@@ -264,11 +266,15 @@ class Toolbox:
         blocked = deliverable_write_blocked(self.memory.working.scratch, path)
         if blocked:
             return blocked
+        if self._turn_journal is not None:
+            self._turn_journal.record_file_before_write(path, self.workspace, self.files)
         result = self.files.write_file(path, content)
         if result.startswith("OK"):
             summary = content.strip().splitlines()[0][:120] if content.strip() else "(empty)"
             self.memory.record_file(path, summary=summary, lines=self.files.line_count(path))
             self.memory.record_fact(f"file:{path}", summary, category="file")
+            if self._turn_journal is not None:
+                self._turn_journal.record_structured_key(f"file:{path}")
             self._invalidate_cache("write_file")
         return result
 

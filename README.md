@@ -2,7 +2,7 @@
 
 **纯终端编程 Agent** — 基于 LangChain + LangGraph 的变体 ReAct 工作流：主 Agent 规划与执行，独立审查 Agent 逐步把关，支持动态预算、检查点续跑、技能扩展与交付质量门。
 
-当前版本：**2.1.5**（`portable-install`）
+当前版本：**3.0.0**（`multi-chat`）
 
 ---
 
@@ -118,7 +118,15 @@ python3 install.py --api-key sk-xxx --base-url https://api.deepseek.com/v1 --mod
 | 运行测试 | `bb.cmd test` / `pytest` | `./bb.sh test` |
 | 打便携包 | `.\pack.ps1` | — |
 
-终端内输入 `/help` 查看 REPL 命令（`/skills`、`/open-folder`、`/resume` 等）。
+终端内输入 `/help` 查看 REPL 命令。
+
+**3.0 多窗口**：`/chat new|list|switch|kill|rename|delete` — 后台并发任务；提示符显示 `[窗口id|tok:累计]`；Tab 补全 slash 命令；`/undo` 整轮撤销。
+
+| 命令 | 说明 |
+|------|------|
+| `/chat new [标题]` | 新建对话窗口 |
+| `/chat switch <id\|#>` | 跳转并回放最近输出 |
+| `/undo` | 撤销当前窗口最近一轮（文件+记忆） |
 
 ---
 
@@ -142,8 +150,13 @@ python3 install.py --api-key sk-xxx --base-url https://api.deepseek.com/v1 --mod
 
 ## 主要能力
 
-- **变体 ReAct**：plan → 审查 → execute → 审查，未通过则修订（有预算上限）
-- **Intent 层**：自动评估任务难度，动态缩放步数/工具预算
+- **变体 ReAct**：plan → 审查 → execute → 审查，未通过则修订
+- **多对话窗口（3.0）**：后台任务池并发；每窗口独立 memory/graph/Sqlite 检查点；`/chat` 跳转
+- **Intent 层**：自动评估任务难度，动态缩放步数预算（3.0 已移除工具次数硬上限）
+- **重复工具微规划**：同一工具签名 ≥3 次触发无审查 `micro_replan`
+- **多轮规划**：directive 满足后可进入下一轮 plan（`BOBANANA_MAX_PLAN_ROUNDS`）
+- **Token 统计**：提示符与 session 元数据累计 in/out tokens
+- **整轮 /undo**：文件快照 + 记忆 + turns.jsonl 回滚
 - **证据驱动审查**：审查器依据真实 `write_file` / `run_shell` 输出，而非 Agent 自述
 - **指令门**：`key_directives` 未满足不结束任务
 - **检查点**：Ctrl-C 中断后可 `/resume` 或 `/rollback`

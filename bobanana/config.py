@@ -87,8 +87,14 @@ class Settings(BaseModel):
     max_plan_revisions: int = 3
     max_exec_revisions: int = 3
     max_steps: int = 20
-    max_tool_iters: int = 24  # per-step ReAct tool budget (failed/cached calls don't count)
-    max_directive_revisions: int = 3  # loops back to satisfy unmet key_directives
+    max_tool_iters: int = 24  # deprecated in 3.0 — executor has no hard cap; kept for compat/scaling display
+    max_directive_revisions: int = 3
+    max_plan_rounds: int = 3  # multi-round planning after directive gate
+    step_timeout: int = 600  # per-step wall-clock seconds (0 = disabled)
+    max_concurrent_tasks: int = 3
+    session_recent_turns: int = 12
+    session_char_budget: int = 6000
+    session_summary_threshold: int = 20
     shell_timeout: int = 120  # seconds; a command exceeding this triggers a replan
 
     # Interruptibility
@@ -150,6 +156,12 @@ class Settings(BaseModel):
             max_steps=_env_int("BOBANANA_MAX_STEPS", 20),
             max_tool_iters=_env_int("BOBANANA_MAX_TOOL_ITERS", 24),
             max_directive_revisions=_env_int("BOBANANA_MAX_DIRECTIVE_REVISIONS", 3),
+            max_plan_rounds=_env_int("BOBANANA_MAX_PLAN_ROUNDS", 3),
+            step_timeout=_env_int("BOBANANA_STEP_TIMEOUT", 600),
+            max_concurrent_tasks=_env_int("BOBANANA_MAX_CONCURRENT_TASKS", 3),
+            session_recent_turns=_env_int("BOBANANA_SESSION_RECENT_TURNS", 12),
+            session_char_budget=_env_int("BOBANANA_SESSION_CHAR_BUDGET", 6000),
+            session_summary_threshold=_env_int("BOBANANA_SESSION_SUMMARY_THRESHOLD", 20),
             shell_timeout=_env_int("BOBANANA_SHELL_TIMEOUT", 120),
             task_timeout=_env_float("BOBANANA_TASK_TIMEOUT", 0.0),
             llm_timeout=_env_int("BOBANANA_LLM_TIMEOUT", 90),
@@ -180,7 +192,6 @@ class Settings(BaseModel):
     # values above act as the ceiling (t=1); these are the floor (t=0).
     _BUDGET_FLOORS = {
         "max_steps": 2,
-        "max_tool_iters": 4,
         "max_exec_revisions": 1,
         "max_plan_revisions": 1,
         "max_directive_revisions": 1,

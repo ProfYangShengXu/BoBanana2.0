@@ -74,6 +74,16 @@ BoBanana 2.0 是一个**纯终端编程 Agent**，用 Python + LangChain + LangG
 - **交付门 skill 默认调用**：`app` 启动加载本机 `code-delivery-gate` 的 `SKILL.md`，`graph` 在「代码任务」
   （`triage.is_code_task`）时把交付门要点注入 planner/executor/exec_review 系统提示，引导清理、自查逻辑链与自动化验证。可经 `BOBANANA_ENABLE_*` 关闭。
 
+### 多对话窗口 / 并发 / Undo（3.0）
+
+- **SessionManager**（`bobanana/sessions/`）：每窗口 `<data_dir>/sessions/{id}/` 存 `meta.json`、`turns.jsonl`、`checkpoints.db`（SqliteSaver）、`undo/`。
+- **TaskRunner**（`bobanana/tasks/runner.py`）：线程池后台跑 graph；`EventBuffer` 缓冲事件；workspace 写锁防并发写冲突。
+- **遗忘加载**：`hydrate_with_forgetting()` — 最近 N 轮原文 + 远期规则摘要 fact。
+- **无工具上限**：executor 仅保留 `BOBANANA_STEP_TIMEOUT` 熔断；重复 sig≥3 → `micro_planner` 局部改 plan。
+- **Tab 补全**：`tui_completer.py` + `NestedCompleter`。
+- **Token**：`telemetry/tokens.py` — LLM callback 累计到 session/global。
+- **/undo**：`undo/journal.py` — write_file 前快照，整轮恢复。
+
 ---
 
 ## 关键流程（逻辑链）
