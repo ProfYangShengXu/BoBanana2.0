@@ -105,7 +105,13 @@ switch ($Command.ToLower()) {
     "stop"    { Stop-Bobanana }
     "restart" { Stop-Bobanana; Ensure-Venv; Run-Tests; Start-Agent }
     "test"    { Ensure-Venv; Run-Tests }
-    "setup"   { if (Test-Path $VenvDir) { Warn ".venv exists; installing/refreshing deps"; & $Py -m pip install -r (Join-Path $Root "requirements.txt") } else { Ensure-Venv }; Ok "setup done" }
+    "setup"   {
+        if (Test-Path $VenvDir) {
+            Warn ".venv exists; installing/refreshing deps"
+            & $Py -m pip install -r (Join-Path $Root "requirements.txt")
+        } else { Ensure-Venv }
+        Ok "setup done"
+    }
     "install" {
         $installPs1 = Join-Path $Root "install.ps1"
         if (-not (Test-Path $installPs1)) { Fail "install.ps1 not found"; exit 1 }

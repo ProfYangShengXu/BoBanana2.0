@@ -173,7 +173,10 @@ def validate_plan(
                     v.warnings.append(err)
                     v.ok = False
         if "critique_report.md" in all_text.lower() and "docs/delivery/output/" not in all_text.lower():
-            v.warnings.append("Do not use root critique_report.md; use docs/delivery/output/YYYY-MM-DD-architecture-critique.md")
+            v.warnings.append(
+                "Do not use root critique_report.md; use "
+                "docs/delivery/output/YYYY-MM-DD-architecture-critique.md"
+            )
             v.ok = False
         if "memory/manager.py" not in all_text and "memory/manager" not in all_text:
             v.warnings.append("Architecture plan must read bobanana/memory/manager.py")

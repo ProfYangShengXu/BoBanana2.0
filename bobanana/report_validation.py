@@ -27,7 +27,8 @@ _PYTEST_COLLECTED = re.compile(r"(\d+)\s+tests?\s+collected", re.I)
 
 # Known false claims from prior bad runs (5.30-2 / 5.30-3 / 5.30-4).
 FALSE_CLAIM_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"ChromaDB|ChromaMemory|Chroma 向量|向量记忆.*Chroma|Chroma\)", "Chroma was removed; memory is working+structured only"),
+    (r"ChromaDB|ChromaMemory|Chroma 向量|向量记忆.*Chroma|Chroma\)",
+     "Chroma was removed; memory is working+structured only"),
     (r"memory\.store\s*\(|memory\.retrieve\s*\(", "MemoryManager has no store()/retrieve(); use remember_turn/build_context"),
     (r"工具注册机制缺失|没有.*ToolRegistry|工具完全硬编码", "Toolbox/registry.py and plugins exist"),
     (r"shell.*无超时|未设置.*timeout|无 timeout(?!\s*保护)", "ShellRunner has configurable timeout via Settings"),
@@ -38,7 +39,9 @@ FALSE_CLAIM_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"_build_graph\s*\(", "graph uses _build(), not _build_graph()"),
     (r"无路径遍历|没有路径遍历|无路径防护|路径遍历无防护|path traversal.*(?:无|没有|未)",
      "FileOps._resolve() uses relative_to(workspace) — path traversal is guarded"),
-    (r"config\.py.*未.{0,20}(?:读取|使用).*BOBANANA_SHELL_TIMEOUT|未从.{0,15}配置.{0,10}shell_timeout|shell_tools\.py.*未读取.*BOBANANA_SHELL_TIMEOUT",
+    (r"config\.py.*未.{0,20}(?:读取|使用).*BOBANANA_SHELL_TIMEOUT|"
+     r"未从.{0,15}配置.{0,10}shell_timeout|"
+     r"shell_tools\.py.*未读取.*BOBANANA_SHELL_TIMEOUT",
      "Settings.load reads BOBANANA_SHELL_TIMEOUT and passes to Toolbox/ShellRunner"),
     (r"run_bobanana\s*\(", "No run_bobanana(); entry is Application + __main__.py"),
     (r"build_context.{0,40}list_symbols|list_symbols.{0,40}build_context|list_explorations\s*\(\)",
@@ -46,7 +49,8 @@ FALSE_CLAIM_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"MCP.*未集成|均未使用.*MCP|Toolbox.*均未.*MCP|MCP 客户端未集成", "MCP tools are registered in Toolbox via McpManager"),
     (r"(?:调用|使用|通过|calls?).{0,30}execute_tool\s*\(", "Toolbox has no execute_tool() method"),
     (r"plan_validation.*\(False,\s*reason\)", "validate_plan returns PlanValidation dataclass"),
-    (r"(intent|metaprompter).{0,40}__init__|实例化.*(intent|metaprompter)", "graph.py does not construct intent/metaprompter in __init__"),
+    (r"(intent|metaprompter).{0,40}__init__|实例化.*(intent|metaprompter)",
+     "graph.py does not construct intent/metaprompter in __init__"),
 )
 
 EXTERNAL_CLAIM_PATTERNS: tuple[str, ...] = (
