@@ -29,7 +29,8 @@ _PYTEST_COLLECTED = re.compile(r"(\d+)\s+tests?\s+collected", re.I)
 FALSE_CLAIM_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"ChromaDB|ChromaMemory|Chroma 向量|向量记忆.*Chroma|Chroma\)",
      "Chroma was removed; memory is working+structured only"),
-    (r"memory\.store\s*\(|memory\.retrieve\s*\(", "MemoryManager has no store()/retrieve(); use remember_turn/build_context"),
+    (r"memory\.store\s*\(|memory\.retrieve\s*\(",
+     "MemoryManager has no store()/retrieve(); use remember_turn/build_context"),
     (r"工具注册机制缺失|没有.*ToolRegistry|工具完全硬编码", "Toolbox/registry.py and plugins exist"),
     (r"shell.*无超时|未设置.*timeout|无 timeout(?!\s*保护)", "ShellRunner has configurable timeout via Settings"),
     (r"无白名单|没有命令白名单|allows arbitrary shell", "Shell allowlist exists in shell_tools.py"),

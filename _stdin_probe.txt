@@ -1,0 +1,3 @@
+stdin_isatty=False
+stdout_isatty=False
+argv=['tests\\_stdin_probe.py']

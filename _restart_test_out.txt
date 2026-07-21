@@ -1,0 +1,29 @@
+[21:02:45] INFO     discovered 4 skill(s)                                       
+           INFO     MCP: no config at                                           
+                    C:\Users\45140\OneDrive\Desktop\code\BoBanana2.0\mcp.json   
+                    (skipped)                                                   
+           INFO     shell command library confirmed for OS=Windows: 33 commands 
+           INFO     plugins:                                                    
+                    dir=C:\Users\45140\OneDrive\Desktop\code\BoBanana2.0\.bobana
+                    na\tools loaded=2 errors=0                                  
+           INFO     exploration cache invalidated (write_file): 1 entr(ies)     
+                    cleared                                                     
+[21:02:47] INFO     delivery-gate skill loaded (4180 chars) ¡ª active for code   
+                    tasks                                                       
+           INFO     shell command library confirmed for OS=Windows: 33 commands 
+           INFO     plugins:                                                    
+                    dir=C:\Users\45140\OneDrive\Desktop\code\BoBanana2.0\.bobana
+                    na\tools loaded=2 errors=0                                  
+           INFO     toolbox ready with 13 tool(s): read_file, write_file,       
+                    list_dir, run_shell, list_skills, use_skill,                
+                    load_skill_repo, web_search, fetch_url, clone_repo,         
+                    describe_tool_registry, plugin_greet, plugin_ping           
+BoBanana 3.0.0 (multi-chat, 2026-05-31) self-check
+================================
+[PASS] settings: sessions=1
+[PASS] sessions: focus=None
+[PASS] memory: recall_len=50
+[PASS] skills: count=4
+[PASS] mcp: no config at C:\Users\45140\OneDrive\Desktop\code\BoBanana2.0\mcp.json (skipped)
+[PASS] tools: read_ok=True
+[PASS] graph: graph compiled
