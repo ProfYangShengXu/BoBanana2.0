@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field
-from typing import Callable, Optional
+from dataclasses import dataclass
+from typing import Callable
 
 from ..logging_setup import get_logger
 

@@ -14,13 +14,13 @@ import importlib.util
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Type
+from typing import Any, Callable, Dict, List, Set, Type
 
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
 
 from ..logging_setup import get_logger
-from .permissions import Permission, format_permissions, parse_permissions
+from .permissions import Permission, parse_permissions
 from .shell_tools import ShellRunner
 
 log = get_logger("tool_plugins")

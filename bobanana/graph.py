@@ -34,7 +34,7 @@ from .memory import MemoryManager
 from .skills import SkillRegistry
 from .state import AgentState, DirectiveCheck, Plan, PlanStep, ReviewResult, new_state
 from .tools import Toolbox
-from .triage import is_code_task, needs_agent_pipeline
+from .triage import needs_agent_pipeline
 
 EventCallback = Callable[[dict], None]
 log = get_logger("graph")
