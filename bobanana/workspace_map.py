@@ -6,8 +6,6 @@ inferring tools only from ``dir .bobanana\\tools``.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 WORKSPACE_MAP = """\
 ## Workspace map (authoritative — do NOT guess other layouts)
 

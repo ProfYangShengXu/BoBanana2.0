@@ -16,7 +16,6 @@ Kept intentionally small/cheap: one tiny file-creation task plus an intent check
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 

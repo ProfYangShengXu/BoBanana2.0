@@ -16,7 +16,6 @@ from bobanana.state import Plan, PlanStep, ReviewResult, TaskTriage
 from bobanana.triage import (
     estimate_task_size,
     is_code_task,
-    is_greeting,
     looks_large,
     looks_research_task,
     looks_unclear,
@@ -379,7 +378,6 @@ def test_directive_gate_fallback_is_conservative():
 def test_executor_fix_instruction_budget_vs_quality():
     from bobanana.agents.executor import ExecutorAgent
     from bobanana.state import ReviewResult
-    from langchain_core.messages import SystemMessage
 
     captured = {}
 

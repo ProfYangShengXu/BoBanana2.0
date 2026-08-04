@@ -1,14 +1,9 @@
 """Tests for multi-chat sessions (BoBanana 3.0)."""
 
-import tempfile
-from pathlib import Path
-
 from bobanana.app import Application
 from bobanana.config import Settings
 from bobanana.memory import MemoryManager
 from bobanana.sessions.forgetting import hydrate_with_forgetting, rule_summarize
-from bobanana.sessions.manager import SessionManager
-from bobanana.sessions.models import ChatSession
 from bobanana.sessions.store import SessionStore
 from bobanana.tasks import EventBuffer
 from bobanana.telemetry.tokens import TokenUsageTracker

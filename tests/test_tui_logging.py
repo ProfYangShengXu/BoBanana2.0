@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import threading
 
 from bobanana.logging_setup import enable_tui_log_bridge, flush_tui_logs, get_logger, setup_logging

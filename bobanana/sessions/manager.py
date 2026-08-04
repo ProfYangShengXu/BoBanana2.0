@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sqlite3
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, TYPE_CHECKING
@@ -17,7 +16,7 @@ from ..memory import MemoryManager
 from ..tasks import EventBuffer
 from ..undo import TurnJournal
 from .forgetting import hydrate_with_forgetting
-from .models import ChatSession, SessionStatus
+from .models import ChatSession
 from .store import SessionStore
 
 if TYPE_CHECKING:
