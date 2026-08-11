@@ -8,7 +8,6 @@ from prompt_toolkit.completion import NestedCompleter, WordCompleter
 def build_completer(app) -> NestedCompleter:
     chat_sub = WordCompleter(["new", "list", "switch", "kill", "rename", "delete"], ignore_case=True)
     skill_names = [s.name for s in app.skills.list()]
-    session_ids = [s.id for s in app.session_manager.list_sessions()]
 
     base = {
         "/help": None,

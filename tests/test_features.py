@@ -1360,7 +1360,6 @@ def test_validate_report_content_rejects_wrong_date(tmp_path):
     from datetime import date
     from bobanana.report_validation import build_report_header, validate_report_content
 
-    today = date.today().isoformat()
     header = build_report_header(["docs/PROJECT.md"])
     bad = header + "\n\n生成日期: 2025-01\n"
     v = validate_report_content(bad, ["docs/PROJECT.md"], tmp_path, today=date.today())

@@ -156,7 +156,6 @@ class Application:
                 turn_id = uuid.uuid4().hex[:12]
                 rt.last_turn_id = turn_id
                 self.token_tracker.begin_task(session_id, turn_id)
-                handler = self._make_token_handler(session_id, turn_id)
                 self._role_models_cache.pop(session_id, None)
 
                 def routed(ev: dict) -> None:

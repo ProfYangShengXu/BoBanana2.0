@@ -106,7 +106,6 @@ def windows_shortcut() -> None:
 
 
 def unix_hint() -> None:
-    bb = ROOT / "bb.sh"
     print()
     print("  macOS / Linux 启动方式：")
     print(f"    cd \"{ROOT}\"")

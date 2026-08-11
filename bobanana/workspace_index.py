@@ -31,7 +31,6 @@ def build_workspace_index(workspace: Path, max_depth: int = 2) -> str:
         for p in entries:
             if p.name in _SKIP_DIRS or _should_skip(p.name):
                 continue
-            rel = p.relative_to(root).as_posix()
             if p.is_dir():
                 lines.append(f"{prefix}{p.name}/")
                 if depth < max_depth:
