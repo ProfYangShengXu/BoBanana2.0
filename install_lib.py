@@ -13,6 +13,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 VENV_DIR = ROOT / ".venv"
 
+# Minimal Python probe shared with install.find_python(): prints "X.Y".
+_PROBE_VERSION_CODE = (
+    "import sys; print('.'.join(map(str, (sys.version_info.major, sys.version_info.minor))))"
+)
+
 
 def info(msg: str) -> None:
     print(f"[install] {msg}")
@@ -186,11 +191,7 @@ def find_python() -> str:
             args = [exe]
         try:
             out = subprocess.check_output(
-                [
-                    *args,
-                    "-c",
-                    "import sys; print('.'.join(map(str, (sys.version_info.major, sys.version_info.minor))))",
-                ],
+                [*args, "-c", _PROBE_VERSION_CODE],
                 text=True,
                 stderr=subprocess.DEVNULL,
             ).strip()

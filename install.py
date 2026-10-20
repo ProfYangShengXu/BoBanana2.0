@@ -20,6 +20,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 VENV_DIR = ROOT / ".venv"
 
+# Minimal Python probe shared with install_lib.find_python(): prints "X.Y".
+_PROBE_VERSION_CODE = (
+    "import sys; print('.'.join(map(str, (sys.version_info.major, sys.version_info.minor))))"
+)
+
 
 def _venv_python() -> Path:
     if platform.system() == "Windows":
@@ -51,11 +56,7 @@ def find_python() -> str:
             continue
         try:
             out = subprocess.check_output(
-                [
-                    exe,
-                    "-c",
-                    "import sys; print('.'.join(map(str, (sys.version_info.major, sys.version_info.minor))))",
-                ],
+                [exe, "-c", _PROBE_VERSION_CODE],
                 text=True,
                 stderr=subprocess.DEVNULL,
             ).strip()

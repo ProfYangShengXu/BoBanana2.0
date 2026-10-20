@@ -24,6 +24,12 @@ _CODE_EXT = {".py", ".js", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java", ".c",
              ".cpp", ".h", ".hpp", ".rb", ".php", ".cs", ".sh", ".md", ".json",
              ".toml", ".yaml", ".yml", ".txt"}
 
+# git clone/pull budget: shallow clones can be slow on large upstream repos.
+GIT_TIMEOUT_SECONDS = 180
+
+# Length cap for the per-file summary stored in structured memory.
+_SUMMARY_CHARS = 120
+
 
 class WebTools:
     def __init__(self, workspace: Path, memory: MemoryManager, timeout: int = 30) -> None:
@@ -109,11 +115,11 @@ class WebTools:
         try:
             if target.exists():
                 proc = subprocess.run(["git", "-C", str(target), "pull", "--ff-only"],
-                                      capture_output=True, text=True, timeout=180)
+                                      capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 proc = subprocess.run(["git", "clone", "--depth", "1", git_url, str(target)],
-                                      capture_output=True, text=True, timeout=180)
+                                      capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
         except FileNotFoundError:
             return "ERROR: git is not installed or not on PATH"
         except subprocess.TimeoutExpired:
@@ -140,7 +146,7 @@ class WebTools:
             except OSError:
                 continue
             rel = str(path.relative_to(self.workspace))
-            summary = (text.strip().splitlines() or ["(empty)"])[0][:120]
+            summary = (text.strip().splitlines() or ["(empty)"])[0][:_SUMMARY_CHARS]
             self.memory.record_file(rel, summary=f"[external] {summary}", lines=text.count("\n") + 1)
             count += 1
         self.memory.record_fact(f"repo:{root.name}", f"imported from clone, {count} files indexed",

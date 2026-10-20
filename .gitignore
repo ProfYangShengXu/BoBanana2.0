@@ -25,6 +25,10 @@ langgraph_latest_*
 pypi_langgraph.json
 github_search_raw.json
 _parse_github.py
+*.log
+*_out.txt
+*_probe.txt
+structured.db
 
 # OS / editor
 .DS_Store

@@ -33,23 +33,32 @@ class FileOps:
             return f"ERROR: file not found: {rel_path}"
         if not path.is_file():
             return f"ERROR: not a file: {rel_path}"
-        text = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            return f"ERROR: read failed for {rel_path}: {exc}"
         if len(text) > max_chars:
             return text[:max_chars] + f"\n... [truncated {len(text) - max_chars} chars]"
         return text
 
     def write_file(self, rel_path: str, content: str) -> str:
         path = self._resolve(rel_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return f"ERROR: write failed for {rel_path}: {exc}"
         lines = content.count("\n") + 1
         return f"OK: wrote {len(content)} chars ({lines} lines) to {rel_path}"
 
     def append_file(self, rel_path: str, content: str) -> str:
         path = self._resolve(rel_path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as fh:
-            fh.write(content)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(content)
+        except OSError as exc:
+            return f"ERROR: append failed for {rel_path}: {exc}"
         return f"OK: appended {len(content)} chars to {rel_path}"
 
     def list_dir(self, rel_path: str = ".") -> str:
@@ -57,7 +66,11 @@ class FileOps:
         if not path.exists():
             return f"ERROR: path not found: {rel_path}"
         entries = []
-        for child in sorted(path.iterdir()):
+        try:
+            children = sorted(path.iterdir())
+        except OSError as exc:
+            return f"ERROR: list failed for {rel_path}: {exc}"
+        for child in children:
             if child.name in {".git", ".bobanana", "__pycache__"}:
                 continue
             kind = "dir " if child.is_dir() else "file"

@@ -26,6 +26,11 @@ $ExcludeDirNames = @(
     ".venv", "venv", ".bobanana", ".git", "__pycache__", "dist", ".cursor", "node_modules", ".pytest_cache"
 )
 
+# File-name globs skipped anywhere in the tree (scratch/debug artefacts).
+$ExcludeFileNames = @(
+    "*.log", "*_out.txt", "*_probe.txt", "structured.db"
+)
+
 $ExcludeRelPrefixes = @(
     "docs\delivery\output\",
     "critique_report.md",
@@ -35,7 +40,8 @@ $ExcludeRelPrefixes = @(
     "matches_out.txt",
     "test_write.txt",
     "langgraph_latest_",
-    "pypi_langgraph.json"
+    "pypi_langgraph.json",
+    "debug-"
 )
 
 $MustHaveAtRoot = @(
