@@ -39,6 +39,12 @@ from .triage import needs_agent_pipeline
 EventCallback = Callable[[dict], None]
 log = get_logger("graph")
 
+# Prompt excerpt budgets (chars) — keep LLM context bounded without dropping whole steps.
+_GATE_EXCERPT_CHARS = 1800  # directive-gate text shown to the planner
+_TOOL_CATALOG_CHARS = 1500  # tool catalog summary kept in scratch memory
+_STEP_LINE_CHARS = 300  # per-step line in the execution summary
+_DONE_STEP_CHARS = 400  # per-step line in the finalize recap
+
 
 class CodingAgentGraph:
     def __init__(self, settings: Settings, llm, memory: MemoryManager,
@@ -137,7 +143,7 @@ class CodingAgentGraph:
         if gate_text.startswith("ERROR"):
             log.warning("delivery-gate skill not loaded: %s", gate_text)
             return ""
-        excerpt = gate_text.strip()[:1800]
+        excerpt = gate_text.strip()[:_GATE_EXCERPT_CHARS]
         log.info("delivery-gate skill loaded (%d chars) — active for code tasks", len(gate_text))
         return (
             "\n\n【交付门 / code-delivery-gate】此为代码任务，遵循以下交付质量门："
@@ -176,7 +182,7 @@ class CodingAgentGraph:
         self.memory.working.set_scratch("workspace_index", index)
         try:
             catalog = self.toolbox.describe_registry()
-            self.memory.working.set_scratch("tool_catalog_summary", catalog[:1500])
+            self.memory.working.set_scratch("tool_catalog_summary", catalog[:_TOOL_CATALOG_CHARS])
         except Exception as exc:
             log.warning("tool catalog summary failed: %s", exc)
         log.info("prepare_workspace: index=%d chars, catalog in scratch", len(index))
@@ -572,7 +578,7 @@ class CodingAgentGraph:
             )
 
         completed = "\n".join(
-            f"- {s.description}: {(s.result or '').strip()[:300]}" for s in plan.steps if s.done
+            f"- {s.description}: {(s.result or '').strip()[:_STEP_LINE_CHARS]}" for s in plan.steps if s.done
         ) or "(nothing completed)"
         if disk_block:
             completed = completed + "\n\n" + disk_block
@@ -688,7 +694,7 @@ class CodingAgentGraph:
         )
 
         plan = Plan(**state["plan"])
-        done = [f"{s.id}. {s.description}\n   -> {(s.result or '').strip()[:400]}" for s in plan.steps if s.done]
+        done = [f"{s.id}. {s.description}\n   -> {(s.result or '').strip()[:_DONE_STEP_CHARS]}" for s in plan.steps if s.done]
         body = "\n".join(done)
         lang = self._lang(state)
         zh = "简体中文" in lang
@@ -697,7 +703,7 @@ class CodingAgentGraph:
         failed = list(state.get("failed_steps", []))
         scratch = self.memory.working.scratch
         read_paths = get_task_read_paths(scratch)
-        wrote_evidence = getattr(self.executor, "last_evidence", "")[:1500]
+        wrote_evidence = getattr(self.executor, "last_evidence", "")[:_TOOL_CATALOG_CHARS]
         gate_unverified = (check.get("all_satisfied") is False and not unmet)
 
         dp = resolve_deliverable_path(scratch, plan.steps)

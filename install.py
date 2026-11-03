@@ -50,21 +50,29 @@ def find_python() -> str:
         ver = f"{sys.version_info.major}.{sys.version_info.minor}"
         _ok(f"Python {ver} ({sys.executable})")
         return sys.executable
-    for cmd in ("python3", "python"):
-        exe = shutil.which(cmd)
-        if not exe or exe == sys.executable:
-            continue
+    for cmd in ("python3", "python", "py"):
+        if cmd == "py":
+            # Windows launcher: `py -3` picks the newest 3.x even when PATH lacks python.
+            exe = shutil.which("py")
+            if not exe:
+                continue
+            args = [exe, "-3"]
+        else:
+            exe = shutil.which(cmd)
+            if not exe or exe == sys.executable:
+                continue
+            args = [exe]
         try:
             out = subprocess.check_output(
-                [exe, "-c", _PROBE_VERSION_CODE],
+                [*args, "-c", _PROBE_VERSION_CODE],
                 text=True,
                 stderr=subprocess.DEVNULL,
             ).strip()
             major, minor = map(int, out.split("."))
             if major > 3 or (major == 3 and minor >= 10):
-                _ok(f"Python {out} ({exe})")
-                return exe
-        except (subprocess.CalledProcessError, ValueError):
+                _ok(f"Python {out} ({' '.join(args)})")
+                return " ".join(args) if cmd == "py" else exe
+        except (subprocess.CalledProcessError, ValueError, FileNotFoundError):
             continue
     _fail(
         "找不到 Python 3.10 或更高版本。\n"

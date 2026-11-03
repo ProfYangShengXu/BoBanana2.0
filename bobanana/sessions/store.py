@@ -39,10 +39,16 @@ class SessionStore:
     def load_meta(self) -> dict | None:
         if not self.meta_path.exists():
             return None
-        return json.loads(self.meta_path.read_text(encoding="utf-8"))
+        try:
+            return json.loads(self.meta_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            # Corrupt/unreadable meta must not abort startup — skip this session.
+            log.warning("session meta unreadable (%s): %s", self.meta_path, exc)
+            return None
 
     def append_turn(self, role: str, content: str) -> None:
         line = json.dumps({"role": role, "content": content}, ensure_ascii=False)
+        # Single write(): a crash mid-append can't leave a half-written line behind.
         with self.turns_path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
 
@@ -52,8 +58,13 @@ class SessionStore:
         out: list[dict] = []
         for line in self.turns_path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
-            if line:
+            if not line:
+                continue
+            try:
                 out.append(json.loads(line))
+            except json.JSONDecodeError:
+                # Truncated final line from an interrupted write — drop it, keep history.
+                log.warning("skipping malformed turn line in %s", self.turns_path)
         return out
 
     def pop_last_turns(self, count: int = 2) -> list[dict]:
